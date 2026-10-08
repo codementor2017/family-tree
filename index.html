@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Our Family Tree — Bloodline Trace</title>
+<style>
+  :root{
+    --node-w: 150px;
+    --node-h: 74px;
+    --male-a:#3b82f6;  --male-b:#1e3a8a;
+    --female-a:#f25c5c; --female-b:#991b1b;
+  }
+
+  *{ box-sizing:border-box; }
+  html,body{ height:100%; }
+
+  body{
+    margin:0;
+    height:100vh;
+    display:flex;
+    flex-direction:column;
+    overflow:hidden;
+    font-family:"Segoe UI",Roboto,system-ui,-apple-system,"Helvetica Neue",Arial,sans-serif;
+    color:#e8eefb;
+    background:radial-gradient(1200px 700px at 50% -10%,#1c2536 0%,#e6e7ea 60%,#070a11 100%);
+  }
+
+  /* ---------- Header ---------- */
+  header{
+    display:flex; flex-wrap:wrap; align-items:center; justify-content:space-between;
+    gap:12px; padding:14px 22px; z-index:5;
+    background:rgba(15,23,42,.72);
+    border-bottom:1px solid rgba(255,255,255,.08);
+    backdrop-filter:blur(8px);
+  }
+  header h1{
+    margin:0; font-size:1.12rem; font-weight:600;
+    letter-spacing:.08em; text-transform:uppercase; color:#dbe7ff;
+  }
+  .legend{ display:flex; flex-wrap:wrap; gap:16px; font-size:.78rem; color:#9fb0cc; }
+  .legend-item{ display:flex; align-items:center; gap:7px; }
+  .swatch{ width:16px; height:16px; border-radius:4px; display:inline-block; }
+  .swatch.male{ background:linear-gradient(155deg,var(--male-a),var(--male-b)); }
+  .swatch.female{ background:linear-gradient(155deg,var(--female-a),var(--female-b)); }
+  .swatch.blood{ background:#334155; border:3px solid #fff; }
+  .swatch.inlaw{ background:#334155; border:3px solid #000; }
+  .swatch.line{ background:transparent; border:0; width:26px; height:12px; position:relative; }
+  .swatch.line::before{
+    content:""; display:block; width:100%; height:0;
+    border-top:4px solid #00d4ff; margin-top:5px; border-radius:2px;
+    box-shadow:0 0 6px #00d4ff;
+  }
+
+  /* ---------- Canvas area ---------- */
+  #viewport{
+    flex:1; position:relative; overflow:auto; cursor:grab;
+    background-image:radial-gradient(rgba(255,255,255,.05) 1px, transparent 1px);
+    background-size:26px 26px;
+  }
+  #viewport.dragging{ cursor:grabbing; }
+  #stage{ position:relative; }
+  #canvas{ position:absolute; top:0; left:0; transform-origin:0 0; }
+  #links{ position:absolute; top:0; left:0; pointer-events:none; overflow:visible; }
+  #nodes{ position:absolute; top:0; left:0; }
+
+  /* ---------- Person node ---------- */
+  .node{
+    position:absolute;
+    width:var(--node-w);
+    height:var(--node-h);
+    border-radius:12px;
+    border:3px solid #ffffff;              /* bloodline = white */
+    display:flex; flex-direction:column;
+    align-items:center; justify-content:center;
+    gap:3px; padding:4px 8px;
+    text-align:center; color:#fff;
+    font-size:.82rem; line-height:1.15;
+    box-shadow:0 8px 20px rgba(0,0,0,.5);
+    transition:transform .18s ease, box-shadow .18s ease;
+    overflow:hidden;
+  }
+  .node.male  { background:linear-gradient(155deg,var(--male-a),var(--male-b)); }
+  .node.female{ background:linear-gradient(155deg,var(--female-a),var(--female-b)); }
+  .node.inlaw { border-color:#000000; }    /* married-in = black */
+  .node:hover{
+    transform:translateY(-3px) scale(1.04);
+    box-shadow:0 14px 28px rgba(0,0,0,.65);
+    z-index:20;
+  }
+  .node .name { font-weight:600; }
+  .node .dates{ font-size:.68rem; opacity:.82; }
+
+  /* ---------- Connector lines ---------- */
+  .link{
+    fill:none; stroke:#5b6b85; stroke-width:2;
+    stroke-linecap:round; stroke-linejoin:round;
+  }
+  .link-marriage{ stroke:#94a3b8; stroke-width:3; }
+
+  /* Bright cyan-blue bloodline trace, thick + glowing */
+  .link-bloodline{
+    stroke:#00d4ff;
+    stroke-width:4;
+    filter:drop-shadow(0 0 6px #00d4ff) drop-shadow(0 0 10px rgba(0,212,255,.6));
+  }
+
+  /* ---------- Zoom controls ---------- */
+  #controls{
+    position:fixed; right:20px; bottom:20px; display:flex; gap:8px;
+    padding:8px; border-radius:12px;
+    background:rgba(15,23,42,.85);
+    border:1px solid rgba(255,255,255,.1);
+    box-shadow:0 10px 25px rgba(0,0,0,.5);
+  }
+  #controls button{
+    width:38px; height:38px; border-radius:9px; cursor:pointer;
+    border:1px solid rgba(255,255,255,.14);
+    background:#1e293b; color:#e2e8f0; font-size:1.05rem;
+    transition:background .15s;
+  }
+  #controls button:hover{ background:#334155; }
+</style>
+</head>
+<body>
+
+<header>
+  <h1>Our Family Tree</h1>
+  <div class="legend">
+    <span class="legend-item"><i class="swatch male"></i>Male</span>
+    <span class="legend-item"><i class="swatch female"></i>Female</span>
+    <span class="legend-item"><i class="swatch blood"></i>Bloodline</span>
+    <span class="legend-item"><i class="swatch inlaw"></i>Spouse / In-law</span>
+    <span class="legend-item"><i class="swatch line"></i>Bloodline trace</span>
+  </div>
+</header>
+
+<div id="viewport">
+  <div id="stage">
+    <div id="canvas">
+      <svg id="links" xmlns="http://www.w3.org/2000/svg"></svg>
+      <div id="nodes"></div>
+    </div>
+  </div>
+</div>
+
+<div id="controls">
+  <button id="zoomOut" title="Zoom out">−</button>
+  <button id="zoomReset" title="Reset zoom">⟲</button>
+  <button id="zoomIn" title="Zoom in">+</button>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* =========================================================
+     1. LAYOUT CONFIGURATION
+     ========================================================= */
+  const NODE_W      = 150;
+  const NODE_H      = 74;
+  const SPOUSE_GAP  = 26;
+  const SIBLING_GAP = 42;
+  const LEVEL_GAP   = 120;
+  const ROOT_GAP    = 100;
+  const PAD         = 60;
+  const SVG_NS      = "http://www.w3.org/2000/svg";
+
+  /* =========================================================
+     2. SAMPLE DATA
+     ========================================================= */
+  const SAMPLE = {
+    roots: ["p1"],
+    people: [
+      { id:"p1",  name:"Robert Smith",  gender:"male",   birth:"1942", death:"2010", spouses:["p2"], children:["p3","p4","p5"] },
+      { id:"p2",  name:"Margaret Smith",gender:"female", birth:"1946", death:"2018" },
+      { id:"p3",  name:"David Smith",   gender:"male",   birth:"1968", spouses:["p6"], children:["p7","p8"] },
+      { id:"p4",  name:"Linda Brown",   gender:"female", birth:"1971", spouses:["p9"], children:["p10","p11"] },
+      { id:"p5",  name:"Susan Green",   gender:"female", birth:"1975", spouses:["p12"], children:["p13"] },
+      { id:"p6",  name:"Sarah Smith",   gender:"female", birth:"1970" },
+      { id:"p7",  name:"James Smith",   gender:"male",   birth:"1994" },
+      { id:"p8",  name:"Emma Smith",    gender:"female", birth:"1997" },
+      { id:"p9",  name:"Michael Brown", gender:"male",   birth:"1969" },
+      { id:"p10", name:"Sophie Brown",  gender:"female", birth:"2000" },
+      { id:"p11", name:"Daniel Brown",  gender:"male",   birth:"2003" },
+      { id:"p12", name:"Peter Green",   gender:"male",   birth:"1974" },
+      { id:"p13", name:"Olivia Green",  gender:"female", birth:"2005" }
+    ]
+  };
+
+  /* =========================================================
+     3. HELPERS
+     ========================================================= */
+  const $ = (id) => document.getElementById(id);
+
+  function escapeHtml(str) {
+    return String(str == null ? "" : str)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+
+  function isFemale(gender) {
+    return String(gender || "").toLowerCase().charAt(0) === "f";
+  }
+
+  function formatDates(p) {
+    const b = p.birth ? String(p.birth) : "";
+    const d = p.death ? String(p.death) : "";
+    if (b && d) return b + " – " + d;
+    if (b)      return "b. " + b;
+    if (d)      return "d. " + d;
+    return "";
+  }
+
+  function svgEl(tag, attrs) {
+    const el = document.createElementNS(SVG_NS, tag);
+    for (const k in attrs) el.setAttribute(k, attrs[k]);
+    return el;
+  }
+
+  /* =========================================================
+     4. DATA LOADING
+     ========================================================= */
+  async function loadData() {
+    try {
+      const res = await fetch("family.json", { cache: "no-store" });
+      if (!res.ok) throw new Error("HTTP " + res.status);
+      return await res.json();
+    } catch (err) {
+      console.warn("[family-tree] Could not load family.json — using sample data.", err);
+      return SAMPLE;
+    }
+  }
+
+  /* =========================================================
+     5. TREE BUILDER
+     ========================================================= */
+  function buildTree(data) {
+    const people = Array.isArray(data.people) ? data.people : [];
+    const byId = new Map(people.map(p => [p.id, p]));
+
+    let rootIds = data.roots || (data.root ? [data.root] : []);
+    rootIds = rootIds.filter(id => byId.has(id));
+
+    if (!rootIds.length && people.length) {
+      const isChild = new Set();
+      people.forEach(p => (p.children || []).forEach(c => isChild.add(c)));
+      rootIds = people.filter(p => !isChild.has(p.id)).map(p => p.id);
+    }
+
+    const bloodline = new Set();
+    const stack = rootIds.slice();
+    while (stack.length) {
+      const id = stack.pop();
+      if (bloodline.has(id)) continue;
+      bloodline.add(id);
+      const p = byId.get(id);
+      if (!p) continue;
+      (p.children || []).forEach(cid => { if (!bloodline.has(cid)) stack.push(cid); });
+    }
+
+    const positions = new Map();
+    let cursor = 0;
+
+    function shiftUnit(unit, dx) {
+      unit.left += dx; unit.right += dx;
+      unit.centerX += dx; unit.anchorX += dx;
+      unit.memberIds.forEach(id => {
+        const pos = positions.get(id);
+        if (pos) pos.x += dx;
+      });
+      unit.childUnits.forEach(u => shiftUnit(u, dx));
+    }
+
+    function layout(person, depth) {
+      const boundary = cursor;
+
+      const spouses = (person.spouses || []).map(id => byId.get(id)).filter(Boolean);
+      const members = [person, ...spouses];
+      const unitW   = members.length * NODE_W + (members.length - 1) * SPOUSE_GAP;
+
+      const children = (person.children || []).map(id => byId.get(id)).filter(Boolean);
+      const childUnits = children.map(c => layout(c, depth + 1));
+
+      let left;
+      if (!childUnits.length) {
+        left = cursor;
+      } else {
+        const firstC = childUnits[0].centerX;
+        const lastC  = childUnits[childUnits.length - 1].centerX;
+        left = (firstC + lastC) / 2 - unitW / 2;
+
+        if (left < boundary) {
+          const dx = boundary - left;
+          childUnits.forEach(u => shiftUnit(u, dx));
+          left += dx;
+        }
+      }
+
+      const y = depth * (NODE_H + LEVEL_GAP);
+
+      const unit = {
+        personId : person.id,
+        memberIds: members.map(m => m.id),
+        left,
+        right    : left + unitW,
+        centerX  : left + unitW / 2,
+        anchorX  : members.length > 1
+                     ? left + NODE_W + SPOUSE_GAP / 2
+                     : left + NODE_W / 2,
+        y,
+        childUnits
+      };
+
+      members.forEach((m, i) => {
+        positions.set(m.id, {
+          x: left + i * (NODE_W + SPOUSE_GAP),
+          y, w: NODE_W, h: NODE_H
+        });
+      });
+
+      let maxRight = unit.right;
+      childUnits.forEach(u => { if (u.right > maxRight) maxRight = u.right; });
+      cursor = Math.max(cursor, maxRight + SIBLING_GAP);
+
+      return unit;
+    }
+
+    const rootUnits = [];
+    rootIds.forEach((rid, i) => {
+      if (i > 0) cursor += ROOT_GAP;
+      rootUnits.push(layout(byId.get(rid), 0));
+    });
+
+    return { people, byId, positions, bloodline, rootUnits };
+  }
+
+  /* =========================================================
+     6. RENDER
+     ========================================================= */
+  function render(tree) {
+    const { people, positions, bloodline, rootUnits } = tree;
+
+    const viewport = $("viewport");
+    const stage    = $("stage");
+    const canvas   = $("canvas");
+    const svg      = $("links");
+    const nodesEl  = $("nodes");
+
+    nodesEl.innerHTML = "";
+    svg.innerHTML = "";
+
+    let maxX = 0, maxY = 0;
+    positions.forEach(p => {
+      maxX = Math.max(maxX, p.x + p.w);
+      maxY = Math.max(maxY, p.y + p.h);
+    });
+
+    const canvasW = maxX + PAD * 2;
+    const canvasH = maxY + PAD * 2;
+
+    canvas.style.width  = canvasW + "px";
+    canvas.style.height = canvasH + "px";
+    svg.setAttribute("width",  canvasW);
+    svg.setAttribute("height", canvasH);
+    svg.setAttribute("viewBox", `0 0 ${canvasW} ${canvasH}`);
+
+    const g = svgEl("g", { transform: `translate(${PAD},${PAD})` });
+    svg.appendChild(g);
+
+    /* ---------- connectors ---------- */
+    (function drawLinks(unit) {
+
+      /* 1) Marriage line between couple */
+      for (let i = 0; i < unit.memberIds.length - 1; i++) {
+        const a = positions.get(unit.memberIds[i]);
+        const b = positions.get(unit.memberIds[i + 1]);
+        if (!a || !b) continue;
+        const y = a.y + NODE_H / 2;
+        g.appendChild(svgEl("line", {
+          x1: a.x + NODE_W, y1: y,
+          x2: b.x,          y2: y,
+          class: "link link-marriage"
+        }));
+      }
+
+      /* 2) Bloodline trace */
+      if (unit.childUnits.length) {
+        /* start from the bottom of the couple/parent unit */
+        const startY = unit.y + NODE_H;
+        /* bus line sits halfway between this generation and the next */
+        const busY   = unit.y + NODE_H + LEVEL_GAP * 0.5;
+
+        /* Vertical stub from anchor down to bus */
+        g.appendChild(svgEl("path", {
+          d: `M ${unit.anchorX} ${startY} V ${busY}`,
+          class: "link link-bloodline",
+          "stroke-linecap":"round"
+        }));
+
+        /* Child center points */
+        const childCenters = unit.childUnits.map(cu => {
+          const cp = positions.get(cu.personId);
+          return cp ? cp.x + NODE_W / 2 : null;
+        }).filter(v => v !== null);
+
+        if (childCenters.length) {
+          const minX = Math.min(...childCenters);
+          const maxX = Math.max(...childCenters);
+
+          /* Horizontal bus */
+          if (maxX - minX > 1) {
+            g.appendChild(svgEl("path", {
+              d: `M ${minX} ${busY} H ${maxX}`,
+              class: "link link-bloodline",
+              "stroke-linecap":"round"
+            }));
+          }
+
+          /* Drop into each child */
+          unit.childUnits.forEach(cu => {
+            const cp = positions.get(cu.personId);
+            if (!cp) return;
+            const cx = cp.x + NODE_W / 2;
+            g.appendChild(svgEl("path", {
+              d: `M ${cx} ${busY} V ${cu.y}`,
+              class: "link link-bloodline",
+              "stroke-linecap":"round"
+            }));
+          });
+        }
+      }
+
+      unit.childUnits.forEach(drawLinks);
+    });
+
+    /* ---------- person cards ---------- */
+    people.forEach(p => {
+      const pos = positions.get(p.id);
+      if (!pos) return;
+
+      const el = document.createElement("div");
+      el.className = "node " + (isFemale(p.gender) ? "female" : "male");
+      if (!bloodline.has(p.id)) el.classList.add("inlaw");
+
+      el.style.left   = (pos.x + PAD) + "px";
+      el.style.top    = (pos.y + PAD) + "px";
+      el.style.width  = NODE_W + "px";
+      el.style.height = NODE_H + "px";
+
+      const dates = formatDates(p);
+      el.innerHTML =
+        `<div class="name">${escapeHtml(p.name)}</div>` +
+        (dates ? `<div class="dates">${escapeHtml(dates)}</div>` : "");
+
+      el.title = p.name + (dates ? "\n" + dates : "") +
+                 (bloodline.has(p.id) ? "\nBloodline" : "\nSpouse / In-law");
+      if (p.note) el.title += "\n" + p.note;
+
+      nodesEl.appendChild(el);
+    });
+
+    /* ---------- zoom & pan ---------- */
+    let zoom = 1;
+
+    function applyZoom() {
+      zoom = Math.min(2, Math.max(0.3, zoom));
+      canvas.style.transform = `scale(${zoom})`;
+      stage.style.width  = (canvasW * zoom) + "px";
+      stage.style.height = (canvasH * zoom) + "px";
+    }
+
+    $("zoomIn").onclick    = () => { zoom += 0.15; applyZoom(); };
+    $("zoomOut").onclick   = () => { zoom -= 0.15; applyZoom(); };
+    $("zoomReset").onclick = () => { zoom = 1; applyZoom(); viewport.scrollTo(0, 0); };
+
+    const fit = Math.min(1, (viewport.clientWidth - 48) / canvasW);
+    zoom = Math.max(0.35, fit);
+    applyZoom();
+
+    let dragging = false, sx = 0, sy = 0, sl = 0, st = 0;
+    viewport.addEventListener("mousedown", e => {
+      if (e.target.closest(".node")) return;
+      dragging = true;
+      viewport.classList.add("dragging");
+      sx = e.pageX; sy = e.pageY;
+      sl = viewport.scrollLeft; st = viewport.scrollTop;
+    });
+    window.addEventListener("mouseup", () => {
+      dragging = false;
+      viewport.classList.remove("dragging");
+    });
+    window.addEventListener("mousemove", e => {
+      if (!dragging) return;
+      e.preventDefault();
+      viewport.scrollLeft = sl - (e.pageX - sx);
+      viewport.scrollTop  = st - (e.pageY - sy);
+    });
+  }
+
+  /* =========================================================
+     7. GO
+     ========================================================= */
+  (async function init() {
+    const data = await loadData();
+    render(buildTree(data));
+  })();
+
+})();
+</script>
+</body>
+</html>
